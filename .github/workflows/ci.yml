@@ -1,0 +1,73 @@
+# Checks every change with the repository's own tools: formatting, Clippy with the
+# series' -F barriers, tests in debug and release, the negative lint fixtures, cargo-deny,
+# and the PostgreSQL 16 integration tests (PG in podman, cargo on the runner).
+#
+# This is supplementary evidence. Acceptance stays local on macOS ARM64 and Linux AArch64
+# (AGENTS.md); on amd64 the integration reports DEV_ONLY (exit 4), never acceptance. The
+# arm64 job runs once the repository is public (no arm64 runners for private ones on Free).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  checks:
+    strategy:
+      fail-fast: false
+      matrix:
+        # arm64 runners exist for public repositories only (Free plan).
+        include: ${{ fromJSON(github.event.repository.private
+          && '[{"arch":"amd64","runner":"ubuntu-24.04"}]'
+          || '[{"arch":"amd64","runner":"ubuntu-24.04"},{"arch":"arm64","runner":"ubuntu-24.04-arm"}]') }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain from rust-toolchain.toml
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Format, Clippy -F, tests debug and release (tools/check_rust_policy.py)
+        run: python3 tools/check_rust_policy.py --project . --manifest Cargo.toml
+      - name: Negative lint fixtures (tools/check_lint_controls.py)
+        run: python3 tools/check_lint_controls.py --output "$RUNNER_TEMP/evidence/lint-controls"
+      - name: PostgreSQL 16 integration (DEV_ONLY off the acceptance targets)
+        run: |
+          set +e
+          python3 tools/run_pg_integration.py --target host --pull --allow-dev \
+            --output "$RUNNER_TEMP/evidence/pg-${{ matrix.arch }}"
+          code=$?
+          # 0 PASS (an arm64 runner), 4 DEV_ONLY (amd64): both mean every test passed.
+          [ "$code" -eq 0 ] || [ "$code" -eq 4 ]
+      - name: Evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: evidence-${{ matrix.arch }}
+          path: |
+            ${{ runner.temp }}/evidence
+            build/rust-policy/runs
+          if-no-files-found: ignore
+          retention-days: 30
+
+  deny:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: cargo-deny in its pinned container (tools/run_deny.py)
+        run: python3 tools/run_deny.py --output "$RUNNER_TEMP/deny"

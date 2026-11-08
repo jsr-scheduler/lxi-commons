@@ -1,0 +1,38 @@
+#!/bin/sh
+# Installed by 40-repo.sh as .git/hooks/pre-push. On a private repository of the Free plan
+# GitHub enforces nothing, so the client checks: main is never deleted or rewritten, and
+# for the commits the remote does not have:
+#   - nothing internal and no secret (github/scan-internal.sh: patterns kept outside the
+#     repository, gitleaks)
+#   - each commit signed with a key of .github/allowed_signers, except the history made
+#     before signing began, listed by SHA in .github/unsigned-history
+# `git push --no-verify` skips it: a net against mistakes, not a control.
+set -eu
+remote=$1
+zero=0000000000000000000000000000000000000000
+here=$(git rev-parse --show-toplevel)
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  # What a ruleset on main would refuse; the Free plan has none for private repositories.
+  if [ "$remote_ref" = refs/heads/main ]; then
+    [ "$local_sha" = "$zero" ] && { echo "pre-push: refusing to delete main on $remote" >&2; exit 1; }
+    if [ "$remote_sha" != "$zero" ] && ! git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
+      echo "pre-push: refusing to rewrite main on $remote (not a fast-forward)" >&2; exit 1
+    fi
+  fi
+  [ "$local_sha" = "$zero" ] && continue
+  commits=$(git rev-list "$local_sha" --not --remotes="$remote")
+  [ -z "$commits" ] && continue
+  oldest=$(printf '%s\n' "$commits" | tail -1)
+  if git rev-parse -q --verify "$oldest^" >/dev/null; then range="$oldest^..$local_sha"; else range=$local_sha; fi
+
+  "$here/github/scan-internal.sh" "$range" >&2 \
+    || { echo "pre-push: refused, something internal or secret in $local_ref (above)" >&2; exit 1; }
+
+  for c in $commits; do
+    grep -qxF "$c" "$here/.github/unsigned-history" && continue
+    git verify-commit "$c" >/dev/null 2>&1 \
+      || { echo "pre-push: commit $(git log -1 --format='%h %s' "$c") is not signed with an allowed key" >&2; exit 1; }
+  done
+  echo "pre-push: $remote_ref checked ($(printf '%s\n' "$commits" | wc -l | tr -d ' ') commits)" >&2
+done

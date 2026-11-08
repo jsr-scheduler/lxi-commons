@@ -1,0 +1,2 @@
+# Commits made before signing began, exempt one by one by SHA from the signature check
+# (github/pre-push). The history starts from a signed commit, so the list is empty.

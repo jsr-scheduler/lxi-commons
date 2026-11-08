@@ -1,0 +1,36 @@
+# cargo-deny policy, run by tools/run_deny.py (pinned image, pinned cargo-deny).
+[graph]
+targets = ["aarch64-unknown-linux-gnu", "aarch64-apple-darwin"]
+all-features = false
+
+[advisories]
+# Every RustSec advisory that affects a dependency fails, including unmaintained and
+# unsound crates; an exception needs an entry here with its reason.
+ignore = []
+
+[licenses]
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "ISC",
+  "BSD-3-Clause",
+  "Zlib",
+  "Unicode-3.0",
+  "BSL-1.0",
+  "Unlicense",
+]
+confidence-threshold = 0.9
+
+[licenses.private]
+# The workspace crates are not published (publish = false).
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

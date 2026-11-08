@@ -1,0 +1,3 @@
+# SSH keys allowed to sign commits and tags (git's gpg.ssh.allowedSignersFile format).
+# One line per key: <email> namespaces="git" <key type> <public key>
+guigra@gmail.com namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEfmMxD5UJJIQ61B453idYr1AWI9pwg6ACnBcm5GlNyf

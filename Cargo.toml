@@ -1,0 +1,37 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/lxi-audit",
+    "crates/lxi-exit",
+    "crates/lxi-files",
+    "crates/lxi-ipc",
+    "crates/lxi-pgclient",
+]
+# Lint fixtures and evidence are generated under build/; never workspace members.
+exclude = ["build"]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.90"
+publish = false
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+unused_must_use = "forbid"
+unknown_lints = "deny"
+
+[workspace.lints.clippy]
+unwrap_used = "forbid"
+expect_used = "forbid"
+panic = "forbid"
+todo = "forbid"
+unimplemented = "forbid"
+unreachable = "forbid"
+indexing_slicing = "forbid"
+string_slice = "forbid"
+arithmetic_side_effects = "forbid"
+as_conversions = "forbid"
+dbg_macro = "forbid"
+
+[profile.release]
+overflow-checks = true
