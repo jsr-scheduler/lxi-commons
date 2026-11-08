@@ -17,7 +17,7 @@ LOCAL_BRANCH=main
 # (shared by the whole series).
 PATTERNS_FILE="$HOME/.config/jsr/internal-patterns"
 # Visibility this repository is meant to end with (public: 50-publish.sh, 60-protect.sh).
-FINAL_VISIBILITY=private
+FINAL_VISIBILITY=public
 
 # The repository (PATCH /repos/{org}/{repo}).
 REPO_SETTINGS='{

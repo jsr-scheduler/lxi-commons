@@ -3,9 +3,7 @@
 `jsr-scheduler/lxi-commons`: keys `jsr-auth` and `jsr-signing`, alias `github-jsr`,
 Actions limited to GitHub's own actions pinned by SHA, read-only workflow token. The
 organization, its Actions settings and the keys are set up once for the organization;
-this folder only holds what is particular to this repository. Visibility: **private** (it was public for a few
-minutes on 2026-11-08, then made private again; `50-publish.sh` and `60-protect.sh` stay
-for when it goes public).
+this folder only holds what is particular to this repository. Visibility: **public** (since 2026-11-08), protected by the rulesets of `60-protect.sh`.
 
 ```sh
 ./00-check.sh         # where things stand, drift from config.sh (read-only)
