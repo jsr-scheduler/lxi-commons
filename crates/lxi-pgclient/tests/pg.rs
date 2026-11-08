@@ -289,3 +289,21 @@ fn a_reused_session_starts_clean_with_its_settings() -> TestResult {
     assert!(no_lock, "advisory locks are released");
     Ok(())
 }
+
+#[test]
+#[ignore = "needs tools/run_pg_integration.py"]
+fn a_password_from_settings_connects() -> TestResult {
+    let host = std::env::var("LXI_IT_TLS_HOSTNAME").unwrap_or_else(|_| "127.0.0.1".to_owned());
+    let mut settings = Settings::new(
+        Zeroizing::new(format!(
+            "host={host} port={} dbname=postgres user=postgres",
+            env("LXI_IT_PG_PORT")?
+        )),
+        Some(env("LXI_IT_CA_FILE")?.into()),
+        Policy::STRICT,
+    );
+    settings.password = Some(Zeroizing::new(env("LXI_IT_SUPER_PASSWORD")?));
+    let (mut session, _) = Session::open(&settings, budget(1500, 4000)?)?;
+    session.batch_execute("SELECT 1")?;
+    Ok(())
+}

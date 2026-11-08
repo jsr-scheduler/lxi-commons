@@ -1,0 +1,9 @@
+# Clean Debian 12 with systemd as PID 1, to install the .deb (tools/packaging/package-test.sh).
+FROM docker.io/library/debian:bookworm-slim
+# The slim image drops manual pages on install; a full system keeps them.
+RUN rm -f /etc/dpkg/dpkg.cfg.d/docker \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends systemd systemd-sysv dbus \
+ && rm -rf /var/lib/apt/lists/*
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]

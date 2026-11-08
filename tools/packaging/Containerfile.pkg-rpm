@@ -1,0 +1,6 @@
+# Clean Rocky Linux 9 with systemd as PID 1, to install the .rpm (tools/packaging/package-test.sh).
+FROM docker.io/rockylinux/rockylinux:9-ubi-init
+# The UBI image installs without documentation; a full system keeps manual pages.
+RUN sed -i '/^tsflags=nodocs/d' /etc/dnf/dnf.conf
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]

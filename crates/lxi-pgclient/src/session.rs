@@ -32,6 +32,9 @@ pub struct Settings {
     /// TCP user timeout on Linux (unacknowledged data before the kernel drops the
     /// connection). `None` uses the per-statement limit.
     pub tcp_user_timeout: Option<Duration>,
+    /// The password, kept out of the DSN (for example read from a private file). A DSN
+    /// that also has one is refused.
+    pub password: Option<Zeroizing<String>>,
 }
 
 impl Settings {
@@ -42,6 +45,7 @@ impl Settings {
             policy,
             timezone: DEFAULT_TIMEZONE.to_owned(),
             tcp_user_timeout: None,
+            password: None,
         }
     }
 
@@ -187,6 +191,13 @@ impl Session {
         let opened = Instant::now();
         let mut config: tokio_postgres::Config =
             settings.dsn.parse().map_err(|_| Error::Configuration)?;
+        if let Some(password) = &settings.password {
+            // One place for the password: never both the DSN and the settings.
+            if config.get_password().is_some() {
+                return Err(Error::Configuration);
+            }
+            config.password(password.as_bytes());
+        }
         let transport = classify(&config, settings.ca_file.is_some(), &settings.policy)?;
         config.connect_timeout(budget.connect);
         if transport != Transport::Unix {
@@ -510,6 +521,29 @@ mod ca_tests {
         assert!(unix_dir_allowed(&absent, &Policy::STRICT).is_err());
         assert!(unix_dir_allowed(&absent, &pinned).is_ok());
         assert!(unix_dir_allowed(&absent, &accepted).is_ok());
+        Ok(())
+    }
+
+    #[test]
+    fn a_password_in_both_places_is_refused() -> Result<()> {
+        let budget = Budget::new(
+            Duration::from_secs(1),
+            Duration::from_millis(1500),
+            Duration::from_secs(2),
+        )?;
+        let mut loopback = Policy::STRICT;
+        loopback.loopback_plaintext = true;
+        let mut settings = Settings::new(
+            Zeroizing::new("host=127.0.0.1 port=1 user=u dbname=d password=x".to_owned()),
+            None,
+            loopback,
+        );
+        settings.password = Some(Zeroizing::new("y".to_owned()));
+        // Refused before any connection (port 1 would otherwise be Unavailable).
+        assert!(matches!(
+            Session::open(&settings, budget),
+            Err(Error::Configuration)
+        ));
         Ok(())
     }
 
