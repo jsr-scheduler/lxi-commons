@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Exercises verify-tag.sh in a throwaway repository with its own origin and keys: a good
 # signed tag and a pre-release pass; a lightweight tag, an unsigned one, one signed by
-# another key, one outside main and one whose version differs are refused.
+# another key, one outside main, one whose version differs and a signed tag published
+# under another name are refused.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)
@@ -33,4 +34,7 @@ sign other v0.1.0-other; git push -q origin v0.1.0-other; expect refuse v0.1.0-o
 git switch -q -c side; echo x > x; git add x; git commit -q -m side; git push -q origin side
 sign good v0.1.0-side; git push -q origin v0.1.0-side; expect refuse v0.1.0-side
 git switch -q main; sign good v0.2.0; git push -q origin v0.2.0; expect refuse v0.2.0
+# The signed object of v0.1.0-rc.1 published under another name: a replay, refused.
+git push -q origin "$(git rev-parse v0.1.0-rc.1):refs/tags/v0.1.0-replay"; git fetch -q --force origin 'refs/tags/*:refs/tags/*'
+expect refuse v0.1.0-replay
 exit $fail
