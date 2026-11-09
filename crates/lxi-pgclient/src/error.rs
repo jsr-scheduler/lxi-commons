@@ -14,6 +14,8 @@ pub enum Error {
     Server {
         sqlstate: String,
         message: String,
+        /// The error's DETAIL, empty when the server sent none.
+        detail: String,
     },
     Io(std::io::Error),
 }

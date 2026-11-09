@@ -307,3 +307,31 @@ fn a_password_from_settings_connects() -> TestResult {
     session.batch_execute("SELECT 1")?;
     Ok(())
 }
+
+#[test]
+#[ignore = "needs tools/run_pg_integration.py"]
+fn a_server_error_carries_its_detail() -> TestResult {
+    let (mut session, _) = Session::open(&lab()?, budget(1500, 4000)?)?;
+    let raised = session.batch_execute(
+        "DO $$ BEGIN RAISE EXCEPTION 'AB_NOT_AUTHORIZED' USING ERRCODE='42501', DETAIL='CPF2189'; END $$",
+    );
+    let Err(Error::Server {
+        sqlstate,
+        message,
+        detail,
+    }) = raised
+    else {
+        return Err(format!("{raised:?}").into());
+    };
+    assert_eq!(
+        (sqlstate.as_str(), message.as_str(), detail.as_str()),
+        ("42501", "AB_NOT_AUTHORIZED", "CPF2189")
+    );
+    // Without DETAIL, empty.
+    let raised = session.batch_execute("DO $$ BEGIN RAISE EXCEPTION 'X'; END $$");
+    assert!(
+        matches!(&raised, Err(Error::Server { detail, .. }) if detail.is_empty()),
+        "{raised:?}"
+    );
+    Ok(())
+}

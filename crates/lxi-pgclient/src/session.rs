@@ -89,6 +89,7 @@ fn server_error(error: &tokio_postgres::Error) -> Error {
         Some(db) => Error::Server {
             sqlstate: db.code().code().to_owned(),
             message: db.message().to_owned(),
+            detail: db.detail().unwrap_or_default().to_owned(),
         },
         None => Error::Unavailable,
     }

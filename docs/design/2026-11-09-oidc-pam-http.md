@@ -52,6 +52,13 @@ tocar JSR, con sus tests portados y sus constantes; lo que cambia va marcado. Pl
   por ALPN y sus streams no tienen el plazo de cabeceras; hace falta `Server::http1_only`,
   porque el de hyper-util solo sigue detectando el prefacio h2) y con plazo por petición
   (un cuerpo lento retenía un permiso sin límite).
+- **Certificados de cliente (M3).** `serve_tls_clients` es `serve_tls` con un certificado
+  de cliente opcional, verificado contra una CA: quien no lo presenta conecta igual (las
+  personas entran con OIDC o PAM) y uno de otra CA no termina el handshake. El handler lee
+  `PeerCertificate { sha256 }` (del primer certificado, DER) en las extensiones; qué
+  aplicación es lo decide el servicio. JSR no tenía mTLS.
+- **`lxi-pgclient` (M3).** `Error::Server` lleva también el `DETAIL` del servidor, donde el
+  broker pone el mensaje de IBM i (`CPF2189`…).
 
 ## Límites conocidos
 
@@ -60,4 +67,4 @@ tocar JSR, con sus tests portados y sus constantes; lo que cambia va marcado. Pl
   rechazos rápidos de cuentas no elegibles. Diseño de JSR (S-07).
 - `with_lasting_user_failures` (la pasarela de IBM i de JSR) cierra la puerta a nombres
   nuevos con la tabla llena (50 000 nombres); el broker no usa ese modo.
-- mTLS para aplicaciones y el binario `ab-pam-helper` son de M3.
+- El binario `ab-pam-helper` es del broker (M3).

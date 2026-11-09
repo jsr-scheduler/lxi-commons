@@ -23,7 +23,9 @@ use axum::body::Body;
 use axum::http::{header, HeaderMap, HeaderValue, Request, StatusCode};
 use axum::routing::{get, post};
 use axum::Router;
-use lxi_http::server::{bearer, cookie, limits, serve_tls, session_cookie};
+use lxi_http::server::{
+    bearer, cookie, limits, serve_tls, serve_tls_clients, session_cookie, PeerCertificate,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tower::ServiceExt;
 
@@ -356,4 +358,117 @@ fn without_alpn() -> TestResult<tokio_rustls::TlsConnector> {
     .with_root_certificates(roots)
     .with_no_client_auth();
     Ok(tokio_rustls::TlsConnector::from(Arc::new(config)))
+}
+
+/// A connector that presents `cert`/`key` as its client certificate.
+fn client_with(cert: &str, key: &str) -> TestResult<tokio_rustls::TlsConnector> {
+    use rustls::pki_types::pem::PemObject;
+    use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+    let mut roots = rustls::RootCertStore::empty();
+    roots.add(CertificateDer::from_pem_file(fixture("ca.pem"))?)?;
+    let config = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()?
+    .with_root_certificates(roots)
+    .with_client_auth_cert(
+        vec![CertificateDer::from_pem_file(fixture(cert))?],
+        PrivateKeyDer::from_pem_file(fixture(key))?,
+    )?;
+    Ok(tokio_rustls::TlsConnector::from(Arc::new(config)))
+}
+
+/// The SHA-256 of the client certificate the handler saw, or `none`.
+fn who() -> Router {
+    Router::new().route(
+        "/who",
+        get(
+            |cert: Option<axum::Extension<PeerCertificate>>| async move {
+                cert.map_or_else(
+                    || "none".to_owned(),
+                    |c| c.0.sha256.iter().map(|b| format!("{b:02x}")).collect(),
+                )
+            },
+        ),
+    )
+}
+
+async fn start_clients() -> TestResult<(SocketAddr, axum_server::Handle<SocketAddr>)> {
+    let handle = axum_server::Handle::new();
+    let server = {
+        let handle = handle.clone();
+        let listen: SocketAddr = "127.0.0.1:0".parse()?;
+        async move {
+            serve_tls_clients(
+                listen,
+                &fixture("tls-cert.pem"),
+                &fixture("tls-key.pem"),
+                &fixture("client-ca.pem"),
+                who(),
+                handle,
+            )
+            .await
+        }
+    };
+    tokio::spawn(server);
+    let address = handle.listening().await.ok_or("not listening")?;
+    Ok((address, handle))
+}
+
+/// `GET /who` through `connector`; the whole reply, or the error that ended it.
+async fn ask_who(address: SocketAddr, connector: tokio_rustls::TlsConnector) -> TestResult<String> {
+    let tcp = tokio::net::TcpStream::connect(address).await?;
+    let name = rustls::pki_types::ServerName::try_from("localhost")?;
+    let mut tls = connector.connect(name, tcp).await?;
+    tls.write_all(b"GET /who HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .await?;
+    let mut reply = Vec::new();
+    tls.read_to_end(&mut reply).await?;
+    Ok(String::from_utf8(reply)?)
+}
+
+#[test]
+fn a_client_certificate_reaches_the_handler() -> TestResult {
+    use rustls::pki_types::pem::PemObject;
+    use sha2::Digest;
+    run(async {
+        let der = rustls::pki_types::CertificateDer::from_pem_file(fixture("client-cert.pem"))?;
+        let expected: String = sha2::Sha256::digest(der.as_ref())
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let (address, handle) = start_clients().await?;
+        let reply = ask_who(address, client_with("client-cert.pem", "client-key.pem")?).await?;
+        assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
+        assert!(reply.ends_with(&expected), "{reply}");
+        handle.shutdown();
+        Ok(())
+    })
+}
+
+#[test]
+fn no_client_certificate_is_none() -> TestResult {
+    run(async {
+        let (address, handle) = start_clients().await?;
+        let reply = ask_who(address, client()?).await?;
+        assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
+        assert!(reply.ends_with("none"), "{reply}");
+        handle.shutdown();
+        Ok(())
+    })
+}
+
+#[test]
+fn a_foreign_client_certificate_fails_the_handshake() -> TestResult {
+    run(async {
+        let (address, handle) = start_clients().await?;
+        let reply = ask_who(address, client_with("foreign-cert.pem", "foreign-key.pem")?).await;
+        // TLS 1.3: the client may finish first and learn of the refusal on its first read.
+        assert!(
+            reply.as_ref().map_or(true, |r| !r.starts_with("HTTP/1.1")),
+            "{reply:?}"
+        );
+        handle.shutdown();
+        Ok(())
+    })
 }
