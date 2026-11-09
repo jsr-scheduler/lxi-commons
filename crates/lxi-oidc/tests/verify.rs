@@ -382,3 +382,26 @@ fn a_key_read_again_is_checked_like_any_other() -> TestResult {
     ));
     Ok(())
 }
+
+/// New in lxi-oidc (stricter than JSR): jsonwebtoken 9 reads time claims as u64, so a
+/// fraction or a negative number would be skipped as if absent. Only whole seconds pass.
+#[test]
+fn time_claims_must_be_whole_non_negative_seconds() -> TestResult {
+    let verifier = verifier()?;
+    let future = f64::from(u32::try_from(at(3600)?)?) + 0.5;
+    for (field, value) in [
+        ("nbf", json!(future)),
+        ("nbf", json!(-1)),
+        ("exp", json!(1.0e300)),
+        ("exp", json!(-5)),
+        ("iat", json!(0.5)),
+    ] {
+        let mut c = claims()?;
+        set(&mut c, field, value.clone())?;
+        assert!(
+            matches!(verifier.verify(&token(&c)?), Err(TokenError::Invalid(_))),
+            "{field}={value}"
+        );
+    }
+    Ok(())
+}

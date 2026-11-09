@@ -253,11 +253,12 @@ impl Verifier {
         let data = decode::<Map<String, Value>>(token, &key.key, &self.validation)
             .map_err(|e| TokenError::Invalid(e.to_string()))?;
         let claims = data.claims;
-        // jsonwebtoken 9 skips a time claim it cannot parse as if it were absent
-        // (GHSA-h395-gr6q-cpjc): a string `nbf` would pass. Present means a number.
+        // jsonwebtoken 9 skips a time claim it cannot parse as a u64 as if it were absent
+        // (GHSA-h395-gr6q-cpjc): a string, a fraction or a negative `nbf` would pass.
+        // Present means whole seconds (JSR checked only for a number).
         for name in ["exp", "nbf", "iat"] {
-            if claims.get(name).is_some_and(|v| !v.is_number()) {
-                return Err(TokenError::Invalid(format!("{name} is not a number")));
+            if claims.get(name).is_some_and(|v| v.as_u64().is_none()) {
+                return Err(TokenError::Invalid(format!("{name} is not whole seconds")));
             }
         }
         let text = |name: &str| {
