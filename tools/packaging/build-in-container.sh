@@ -13,6 +13,8 @@ export SOURCE_DATE_EPOCH
 cd /src
 # shellcheck source=/dev/null
 . packaging/manifest.sh
+# Optional in the manifest.
+if [[ -z ${BUILD_DEPENDS+set} ]]; then BUILD_DEPENDS=(); fi
 export RUSTFLAGS="--remap-path-prefix=/src=/$NAME --remap-path-prefix=/usr/local/cargo/registry/src=/cargo --remap-path-prefix=/usr/local/cargo/git/checkouts=/cargo-git --remap-path-prefix=/usr/local/rustup=/rustup"
 host=$(dpkg --print-architecture)
 apt_get() { DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends "$@" >/dev/null; }
@@ -34,6 +36,8 @@ for arch in "$@"; do
       arm64) apt_get gcc-aarch64-linux-gnu libc6-dev-arm64-cross ;;
     esac
   fi
+  # The libraries the service links (manifest BUILD_DEPENDS), for this architecture.
+  for dep in "${BUILD_DEPENDS[@]}"; do apt_get "$dep:$arch"; done
 done
 
 triple() { case $1 in amd64) echo x86_64-unknown-linux-gnu ;; arm64) echo aarch64-unknown-linux-gnu ;; esac; }

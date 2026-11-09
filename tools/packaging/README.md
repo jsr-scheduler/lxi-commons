@@ -17,6 +17,7 @@ FILES=("packaging/my-service.service|/usr/lib/systemd/system/my-service.service|
 CONFFILES=()                         # files under /etc kept on upgrade and removal
 DEB_DEPENDS="libc6 (>= 2.31), systemd"
 RPM_REQUIRES="systemd, glibc >= 2.31"
+BUILD_DEPENDS=(libpam0g-dev)         # optional: Debian 11 -dev packages it links, per arch
 ```
 
 Optional: `packaging/deb/{postinst,prerm,postrm}`, `packaging/rpm/{pre,post,preun,postun}.sh`,
