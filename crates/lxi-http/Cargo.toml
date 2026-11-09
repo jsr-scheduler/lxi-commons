@@ -18,6 +18,7 @@ zeroize = "=1.9.1"
 
 [dev-dependencies]
 tokio-rustls = { version = "=0.26.6", default-features = false, features = ["ring"] }
+futures-util = { version = "=0.3.34", default-features = false }
 tower = { version = "=0.5.3", features = ["util"] }
 tokio = { version = "=1.54.1", features = ["rt", "time", "sync", "net", "io-util", "test-util"] }
 

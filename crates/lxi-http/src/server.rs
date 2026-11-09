@@ -21,6 +21,9 @@ pub const MAX_BODY_BYTES: usize = 64 * 1024;
 pub const MAX_CONCURRENT: usize = 64;
 /// Time a client has to send a request's headers once connected (slowloris, JSR S-18).
 pub const HEADER_READ_TIMEOUT: Duration = Duration::from_secs(10);
+/// Time a request has, once its headers are read, until its response is ready (body
+/// included): a slow body cannot hold a slot for ever.
+pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// `app` with the body limit, the concurrency limit and the response headers.
 pub fn limits(app: Router) -> Router {
@@ -32,7 +35,10 @@ pub fn limits(app: Router) -> Router {
                 let Ok(_permit) = permits.try_acquire_owned() else {
                     return StatusCode::TOO_MANY_REQUESTS.into_response();
                 };
-                next.run(request).await
+                match tokio::time::timeout(REQUEST_TIMEOUT, next.run(request)).await {
+                    Ok(response) => response,
+                    Err(_) => StatusCode::REQUEST_TIMEOUT.into_response(),
+                }
             }
         }))
         .layer(middleware::from_fn(headers))
@@ -67,10 +73,16 @@ pub async fn serve_tls(
 ) -> std::io::Result<()> {
     // Only one process-wide provider; a second install is harmless.
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let config = axum_server::tls_rustls::RustlsConfig::from_pem_file(cert_pem, key_pem).await?;
-    let mut server = axum_server::bind_rustls(listen, config).handle(handle);
-    // A client that never finishes its headers is dropped; the TLS handshake has its own
-    // 10 s limit in axum-server.
+    let config = axum_server::tls_rustls::RustlsConfig::from_config(Arc::new(tls_config(
+        cert_pem, key_pem,
+    )?));
+    // HTTP/1.1 only, in ALPN and in the server (hyper-util's own `http1_only` alone still
+    // sniffs an HTTP/2 preface): HTTP/2 streams would not have the header timeout (JSR
+    // offered h2). A client that never finishes its headers is dropped; the TLS handshake
+    // has its own 10 s limit in axum-server.
+    let mut server = axum_server::bind_rustls(listen, config)
+        .handle(handle)
+        .http1_only();
     server
         .http_builder()
         .http1()
@@ -79,6 +91,28 @@ pub async fn serve_tls(
     server
         .serve(limits(app).into_make_service_with_connect_info::<SocketAddr>())
         .await
+}
+
+/// The server's certificate chain and key from PEM files, ALPN `http/1.1` only.
+fn tls_config(cert_pem: &Path, key_pem: &Path) -> std::io::Result<rustls::ServerConfig> {
+    use rustls::pki_types::pem::PemObject;
+    use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+    let invalid = |e: rustls::pki_types::pem::Error| std::io::Error::other(e.to_string());
+    let certs = CertificateDer::pem_file_iter(cert_pem)
+        .map_err(invalid)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(invalid)?;
+    let key = PrivateKeyDer::from_pem_file(key_pem).map_err(invalid)?;
+    let mut config = rustls::ServerConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .map_err(|e| std::io::Error::other(e.to_string()))?
+    .with_no_client_auth()
+    .with_single_cert(certs, key)
+    .map_err(|e| std::io::Error::other(e.to_string()))?;
+    config.alpn_protocols = vec![b"http/1.1".to_vec()];
+    Ok(config)
 }
 
 /// The token of `Authorization: Bearer <token>`.

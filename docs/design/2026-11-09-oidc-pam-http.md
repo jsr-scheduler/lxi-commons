@@ -43,11 +43,15 @@ tocar JSR, con sus tests portados y sus constantes; lo que cambia va marcado. Pl
   comprobación bloqueante, todo rechazo a los 4 s, apertura). *Más estricto que JSR:*
   el hueco de PAM va con la conversación, no con la petición; un cliente que se va no
   lo libera mientras PAM sigue.
-- `server`: `serve_tls` (rustls con ring, 10 s para las cabeceras), `limits` (cuerpo de
-  64 KiB, 64 peticiones a la vez y 429, `nosniff`, `no-referrer` y `no-store` salvo que
+- `server`: `serve_tls` (rustls con ring, solo HTTP/1.1, 10 s para las cabeceras),
+  `limits` (cuerpo de 64 KiB, 64 peticiones a la vez y 429, 30 s hasta la respuesta y
+  408, `nosniff`, `no-referrer` y `no-store` salvo que
   el handler elija su caché), `bearer`, `cookie` y `session_cookie` (`HttpOnly; Secure;
   SameSite=Strict; Path=/`). *Decisión mía:* el semáforo de 64 es una capa genérica; en
-  JSR estaba en su despacho.
+  JSR estaba en su despacho. *Más estricto que JSR:* sin HTTP/2 (axum-server lo ofrecía
+  por ALPN y sus streams no tienen el plazo de cabeceras; hace falta `Server::http1_only`,
+  porque el de hyper-util solo sigue detectando el prefacio h2) y con plazo por petición
+  (un cuerpo lento retenía un permiso sin límite).
 
 ## Límites conocidos
 

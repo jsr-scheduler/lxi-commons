@@ -207,6 +207,8 @@ fn client() -> TestResult<tokio_rustls::TlsConnector> {
     .with_safe_default_protocol_versions()?
     .with_root_certificates(roots)
     .with_no_client_auth();
+    let mut config = config;
+    config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
     Ok(tokio_rustls::TlsConnector::from(Arc::new(config)))
 }
 
@@ -278,4 +280,80 @@ fn a_client_that_never_finishes_its_headers_is_dropped() -> TestResult {
         handle.shutdown();
         Ok(())
     })
+}
+
+/// A client that sends its body slowly cannot hold one of the 64 slots for ever: the
+/// response must be ready within REQUEST_TIMEOUT (automated review; JSR had no bound).
+#[test]
+fn a_request_that_never_finishes_its_body_times_out() -> TestResult {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .start_paused(true)
+        .build()?
+        .block_on(async {
+            let never =
+                futures_util::stream::pending::<Result<axum::body::Bytes, std::io::Error>>();
+            let request = Request::post("/echo").body(Body::from_stream(never))?;
+            let response = tokio::time::timeout(
+                lxi_http::server::REQUEST_TIMEOUT.saturating_add(Duration::from_secs(1)),
+                send(app(), request),
+            )
+            .await
+            .map_err(|_| "no answer within REQUEST_TIMEOUT")??;
+            assert_eq!(response.status(), StatusCode::REQUEST_TIMEOUT);
+            Ok(())
+        })
+}
+
+/// HTTP/2 is not offered: its streams would not have the header timeout (automated
+/// review; JSR offered h2 through axum-server's default ALPN).
+#[test]
+fn only_http_1_1_is_negotiated() -> TestResult {
+    run(async {
+        let (address, handle) = start().await?;
+        let tls = connect(address).await?;
+        assert_eq!(tls.get_ref().1.alpn_protocol(), Some(&b"http/1.1"[..]));
+        handle.shutdown();
+        Ok(())
+    })
+}
+
+/// An HTTP/2 preface without ALPN (prior knowledge) is not served as HTTP/2 either.
+#[test]
+fn an_http_2_preface_is_not_served() -> TestResult {
+    run(async {
+        let (address, handle) = start().await?;
+        let tcp = tokio::net::TcpStream::connect(address).await?;
+        let name = rustls::pki_types::ServerName::try_from("localhost")?;
+        let mut tls = without_alpn()?.connect(name, tcp).await?;
+        tls.write_all(b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n").await?;
+        let mut reply = vec![0_u8; 64];
+        let read = tokio::time::timeout(Duration::from_secs(5), tls.read(&mut reply)).await;
+        let n = match read {
+            Ok(Ok(n)) => n,
+            Ok(Err(_)) | Err(_) => 0,
+        };
+        let reply = reply.get(..n).unwrap_or_default();
+        // An HTTP/2 server answers with a SETTINGS frame (type 4 at byte 3).
+        assert!(
+            !(reply.len() >= 9 && reply.get(3) == Some(&4)),
+            "served as HTTP/2: {reply:?}"
+        );
+        handle.shutdown();
+        Ok(())
+    })
+}
+
+fn without_alpn() -> TestResult<tokio_rustls::TlsConnector> {
+    use rustls::pki_types::pem::PemObject;
+    use rustls::pki_types::CertificateDer;
+    let mut roots = rustls::RootCertStore::empty();
+    roots.add(CertificateDer::from_pem_file(fixture("ca.pem"))?)?;
+    let config = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()?
+    .with_root_certificates(roots)
+    .with_no_client_auth();
+    Ok(tokio_rustls::TlsConnector::from(Arc::new(config)))
 }
