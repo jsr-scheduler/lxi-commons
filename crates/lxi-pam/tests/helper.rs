@@ -92,9 +92,14 @@ fn the_helper_refuses_another_uid_before_reading() -> TestResult {
     let other = me().checked_add(1).ok_or("uid")?;
     assert!(serve(server, &fake, other).is_err());
     assert_eq!(fake.calls.load(Ordering::SeqCst), 0);
-    // The connection is closed without an answer.
+    // The connection is closed without an answer: an end of stream, or on Linux a reset
+    // (the helper closed with the request unread).
     let mut rest = Vec::new();
-    client.read_to_end(&mut rest)?;
+    match client.read_to_end(&mut rest) {
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset => {}
+        Err(e) => return Err(e.into()),
+    }
     assert!(rest.is_empty());
     Ok(())
 }
