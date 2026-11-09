@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 import check_rust_policy  # noqa: E402  (same directory, no third-party code)
 
-BUILDER = 'localhost/ab-builder:1.90'
+BUILDER = 'localhost/lxi-builder:1.90-pam'
 
 
 def main():

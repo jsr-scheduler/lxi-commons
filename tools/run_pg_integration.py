@@ -31,7 +31,7 @@ HOST_ARCH = {'arm64': 'arm64', 'aarch64': 'arm64', 'x86_64': 'amd64', 'amd64': '
 PG_IMAGE = PG_IMAGES.get(HOST_ARCH, PG_IMAGES['arm64'])
 PG_TAG = 'docker.io/library/postgres:16-bookworm'
 # containers/Containerfile.builder (rust:1.90-slim-bookworm arm64 + rustfmt/clippy).
-BUILDER = 'localhost/ab-builder:1.90'
+BUILDER = 'localhost/lxi-builder:1.90-pam'
 # NOT_RUN markers a target may legitimately print (see the plan, Task 5).
 ALLOWED_NOT_RUN = {'macos': {'the_unix_socket_peer_must_be_the_expected_uid'},
                    # host: PG in podman, cargo on the host (macOS, or the GitHub CI).
