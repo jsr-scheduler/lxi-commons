@@ -397,6 +397,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "lxi-http"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "getrandom 0.2.17",
+ "sha2",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
 name = "lxi-ipc"
 version = "0.1.0"
 dependencies = [

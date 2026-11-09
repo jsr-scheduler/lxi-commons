@@ -4,6 +4,7 @@ members = [
     "crates/lxi-audit",
     "crates/lxi-exit",
     "crates/lxi-files",
+    "crates/lxi-http",
     "crates/lxi-ipc",
     "crates/lxi-oidc",
     "crates/lxi-pam",
