@@ -180,7 +180,7 @@ fn the_client_treats_garbage_as_unavailable() -> TestResult {
     ] {
         let path = socket(test)?;
         let helper = fake_helper(&path, reply)?;
-        let answer = Client::new(&path).authenticate(&me_name, "secret");
+        let answer = Client::new(&path, me()).authenticate(&me_name, "secret");
         assert!(
             matches!(answer, Err(AuthError::Unavailable(_))),
             "{test}: {answer:?}"
@@ -190,7 +190,7 @@ fn the_client_treats_garbage_as_unavailable() -> TestResult {
     // No helper at all.
     let path = socket("none")?;
     assert!(matches!(
-        Client::new(&path).authenticate(&me_name, "secret"),
+        Client::new(&path, me()).authenticate(&me_name, "secret"),
         Err(AuthError::Unavailable(_))
     ));
     Ok(())
@@ -214,7 +214,7 @@ fn the_client_follows_the_helpers_answer() -> TestResult {
             Ok(())
         })
     };
-    let client = Client::new(&path);
+    let client = Client::new(&path, me());
     let account = client.authenticate(&me_name, "secret")?;
     assert_eq!(account.name, me_name);
     assert_eq!(account.uid, nix::unistd::Uid::current().as_raw());
@@ -245,4 +245,34 @@ impl Check for FakeFor {
             Err(AuthError::Rejected("wrong".into()))
         }
     }
+}
+
+/// Whoever can create the socket must not receive passwords: the client checks the
+/// helper's UID before it sends anything (automated review).
+#[test]
+fn the_client_sends_nothing_to_a_helper_with_another_uid() -> TestResult {
+    let me_name = nix::unistd::User::from_uid(nix::unistd::Uid::current())?
+        .ok_or("no current user")?
+        .name;
+    let path = socket("impostor")?;
+    let listener = UnixListener::bind(&path)?;
+    let impostor = std::thread::spawn(move || -> Vec<u8> {
+        let mut got = Vec::new();
+        if let Ok((mut stream, _)) = listener.accept() {
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
+            let _ = stream.read_to_end(&mut got);
+            let _ = stream
+                .write_all(&framed(&json!({"v": 1, "result": "accepted"})).unwrap_or_default());
+        }
+        got
+    });
+    let helper_uid = me().checked_add(1).ok_or("uid")?;
+    let answer = Client::new(&path, helper_uid).authenticate(&me_name, "secret");
+    assert!(
+        matches!(answer, Err(AuthError::Unavailable(_))),
+        "{answer:?}"
+    );
+    let got = impostor.join().map_err(|_| "impostor thread")?;
+    assert!(got.is_empty(), "the impostor received {} bytes", got.len());
+    Ok(())
 }

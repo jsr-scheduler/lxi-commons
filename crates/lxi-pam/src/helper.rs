@@ -4,8 +4,9 @@
 //! `{"v":1,"user","password"}` and the answer `{"v":1,"result":"accepted"|"rejected"|
 //! "unavailable"}`. The helper checks the peer's UID before reading anything, never says
 //! why, and never returns account data: the client reads the account itself, which needs
-//! no privilege. The socket's own permissions (systemd `SocketUser`, `SocketMode=0600`)
-//! are the first fence; the UID check is the second.
+//! no privilege. The client checks the helper's UID before it sends the password. The
+//! socket's own permissions (systemd `SocketUser`, `SocketMode=0600`) are the first
+//! fence; the UID checks are the second.
 
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -61,16 +62,19 @@ fn fields(request: &Value) -> Result<(&str, Zeroizing<String>), Error> {
     Ok((user, password))
 }
 
-/// Asks the helper listening on `socket`.
+/// Asks the helper listening on `socket`, which must run as `helper_uid` (0 for a root
+/// helper).
 #[derive(Debug, Clone)]
 pub struct Client {
     socket: PathBuf,
+    helper_uid: u32,
 }
 
 impl Client {
-    pub fn new(socket: &Path) -> Self {
+    pub fn new(socket: &Path, helper_uid: u32) -> Self {
         Self {
             socket: socket.to_path_buf(),
+            helper_uid,
         }
     }
 
@@ -85,6 +89,12 @@ impl Client {
         }
         let gone = |e: Error| AuthError::Unavailable(format!("PAM helper: {e}"));
         let mut stream = lxi_ipc::connect(&self.socket, &Limits::SERIES).map_err(gone)?;
+        // Whoever could create the socket must not receive the password, nor answer yes.
+        if lxi_ipc::peer_uid(&stream).map_err(gone)? != self.helper_uid {
+            return Err(AuthError::Unavailable(
+                "PAM helper: the socket's peer is not the helper's user".into(),
+            ));
+        }
         let mut request = json!({"v": 1, "user": user, "password": password});
         let sent = lxi_ipc::write_frame(&mut stream, &request, &Limits::SERIES);
         lxi_ipc::scrub(&mut request, "password");

@@ -99,7 +99,7 @@ fn the_helper_accepts_through_its_socket() -> TestResult {
         }
         Ok(())
     });
-    let client = Client::new(&path);
+    let client = Client::new(&path, me);
     assert_eq!(client.authenticate(&user, &password)?.name, user);
     assert!(matches!(
         client.authenticate(&user, "certainly not the password"),
