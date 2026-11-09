@@ -5,6 +5,7 @@ members = [
     "crates/lxi-exit",
     "crates/lxi-files",
     "crates/lxi-ipc",
+    "crates/lxi-oidc",
     "crates/lxi-pgclient",
 ]
 # Lint fixtures and evidence are generated under build/; never workspace members.
