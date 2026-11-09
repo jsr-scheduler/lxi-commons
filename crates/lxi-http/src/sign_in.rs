@@ -96,13 +96,19 @@ impl<U: LocalUsers> SignIn<U> {
             return Err((SignInError::Throttled, format!("{address} throttled")));
         }
         let started = tokio::time::Instant::now();
-        let Ok(_slot) = Arc::clone(&self.slots).try_acquire_owned() else {
+        let Ok(slot) = Arc::clone(&self.slots).try_acquire_owned() else {
             return Err((SignInError::Unavailable, "too many sign-ins at once".into()));
         };
+        // The slot goes with the PAM conversation, not with the request: a client that
+        // goes away does not free it while PAM still runs (JSR held it in the request).
         let check = {
             let sessions = Arc::clone(&self.sessions);
             let user = user.clone();
-            tokio::task::spawn_blocking(move || sessions.check(&user, &password)).await
+            tokio::task::spawn_blocking(move || {
+                let _slot = slot;
+                sessions.check(&user, &password)
+            })
+            .await
         };
         let account = match check {
             Ok(Ok(account)) => account,

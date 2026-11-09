@@ -105,3 +105,106 @@ fn a_refresh_that_times_out_keeps_the_session_until_stale() -> TestResult {
         Ok(())
     })
 }
+
+/// Every check but `quick`'s waits until the test opens the gate.
+struct Held {
+    entered: std::sync::atomic::AtomicUsize,
+    gate: Mutex<bool>,
+    open: std::sync::Condvar,
+}
+
+impl LocalUsers for Held {
+    type Account = (String, Vec<String>);
+
+    fn authenticate(&self, user: &str, _: &str) -> Result<Self::Account, LocalAuthError> {
+        if user != "quick" {
+            self.entered
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let mut open = self.gate.lock().map_err(poisoned)?;
+            while !*open {
+                open = self.open.wait(open).map_err(poisoned)?;
+            }
+        }
+        Ok((user.into(), vec!["role".into()]))
+    }
+
+    fn name(account: &Self::Account) -> &str {
+        &account.0
+    }
+
+    fn eligible(&self, _: &Self::Account) -> Result<(), &'static str> {
+        Ok(())
+    }
+}
+
+/// A client that goes away does not free its PAM slot while PAM still runs (automated
+/// review; JSR dropped the permit with the request).
+#[test]
+fn an_abandoned_sign_in_keeps_its_slot_until_pam_answers() -> TestResult {
+    run(false, async {
+        let users = Arc::new(Held {
+            entered: std::sync::atomic::AtomicUsize::new(0),
+            gate: Mutex::new(false),
+            open: std::sync::Condvar::new(),
+        });
+        let sign_in = Arc::new(SignIn::new(Arc::new(Sessions::new(
+            Arc::clone(&users),
+            "test_",
+        ))));
+        let mut tasks = Vec::new();
+        for n in 0..MAX_SIGN_INS {
+            let sign_in = Arc::clone(&sign_in);
+            let peer: IpAddr = format!("10.0.1.{n}").parse()?;
+            tasks.push(tokio::spawn(async move {
+                let _ = sign_in
+                    .attempt(&format!("u{n}"), Zeroizing::new("pw".into()), peer)
+                    .await;
+            }));
+        }
+        for _ in 0..500 {
+            if users.entered.load(std::sync::atomic::Ordering::SeqCst) >= MAX_SIGN_INS {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        let entered = users.entered.load(std::sync::atomic::Ordering::SeqCst);
+        if entered != MAX_SIGN_INS {
+            *users.gate.lock().map_err(|_| "poisoned")? = true;
+            users.open.notify_all();
+            return Err(format!("{entered} checks started").into());
+        }
+        // The clients go away; their PAM conversations go on.
+        for task in &tasks {
+            task.abort();
+        }
+        for task in tasks {
+            let _ = task.await;
+        }
+        let peer: IpAddr = "10.0.2.1".parse()?;
+        let refused = sign_in
+            .attempt("quick", Zeroizing::new("pw".into()), peer)
+            .await
+            .err()
+            .map(|(e, _)| e);
+        // PAM answers (before any assertion: a held thread would keep the runtime alive).
+        *users.gate.lock().map_err(|_| "poisoned")? = true;
+        users.open.notify_all();
+        assert_eq!(refused, Some(SignInError::Unavailable));
+        // The slots come back.
+        let mut accepted = false;
+        for n in 0..200_u32 {
+            let peer: IpAddr = format!("10.0.3.{}", n.checked_rem(250).unwrap_or(0)).parse()?;
+            if sign_in
+                .attempt("quick", Zeroizing::new("pw".into()), peer)
+                .await
+                .is_ok()
+            {
+                accepted = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert!(accepted);
+        Ok(())
+    })
+}
