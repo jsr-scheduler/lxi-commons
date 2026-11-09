@@ -1,0 +1,9 @@
+# Findings gitleaks takes for secrets, reviewed 2026-11-09: private keys generated for the
+# test suites (TLS server and client, OIDC signing), used only by tests, never deployed
+# (tests/fixtures/README.md of each crate). Format: commit:file:rule:line.
+d9af4b4b88e0ae2f05b8efdfeddfb619ced5f73e:crates/lxi-http/tests/fixtures/client-key.pem:private-key:1
+d9af4b4b88e0ae2f05b8efdfeddfb619ced5f73e:crates/lxi-http/tests/fixtures/foreign-key.pem:private-key:1
+56a1fa2a407f7101ef94eaf52ab760dd45dbdb3e:crates/lxi-http/tests/fixtures/tls-key.pem:private-key:1
+d40f502c00206e8584f159ac006d4605ba9d93da:crates/lxi-oidc/tests/fixtures/foreign.pem:private-key:1
+d40f502c00206e8584f159ac006d4605ba9d93da:crates/lxi-oidc/tests/fixtures/rotated.pem:private-key:1
+d40f502c00206e8584f159ac006d4605ba9d93da:crates/lxi-oidc/tests/fixtures/trusted.pem:private-key:1
